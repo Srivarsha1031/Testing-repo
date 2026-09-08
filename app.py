@@ -1,8 +1,8 @@
 # Testing-repo
 # Sekura test fixture
-PASSWORD = "test123"
+PASSWORD = "rescan-20260908"
 
 def login(p):
     return p == PASSWORD
 
-print(login("test123"))
+print(login("rescan-20260908"))
