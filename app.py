@@ -1,4 +1,7 @@
-a = float(input("Enter base number: "))
-b = float(input("Enter exponent: "))
+a = float(input("Enter first number: "))
+b = float(input("Enter second number: "))
 
-print(f"{a} ^ {b} = {a ** b}")
+if b == 0:
+    print("Cannot divide by zero")
+else:
+    print(f"{a} % {b} = {a % b}")
