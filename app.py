@@ -1,94 +1,134 @@
 """
-Number guessing game.
-The computer picks a secret number and you try to guess it.
-Tracks attempts, gives hints, and lets you play again.
+To-do list manager.
+Add, view, complete and delete tasks. Tasks are saved to a file so they
+are still there the next time you run the program.
 """
 
-import random
+import json
+import os
+
+SAVE_FILE = "tasks.json"
 
 
-def choose_difficulty():
-    print("Pick a difficulty:")
-    print("  1. Easy   (1-10, 5 guesses)")
-    print("  2. Medium (1-50, 7 guesses)")
-    print("  3. Hard   (1-100, 8 guesses)")
-
-    while True:
-        choice = input("Your choice: ").strip()
-        if choice == "1":
-            return 10, 5
-        if choice == "2":
-            return 50, 7
-        if choice == "3":
-            return 100, 8
-        print("Please enter 1, 2 or 3.")
+def load_tasks():
+    """Read tasks from the save file, or start fresh if it doesn't exist."""
+    if not os.path.exists(SAVE_FILE):
+        return []
+    with open(SAVE_FILE, "r") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return []
 
 
-def play_round():
-    max_number, max_guesses = choose_difficulty()
-    secret = random.randint(1, max_number)
-    guesses_left = max_guesses
-    previous_guesses = []
+def save_tasks(tasks):
+    with open(SAVE_FILE, "w") as f:
+        json.dump(tasks, f, indent=2)
 
-    print(f"\nI'm thinking of a number between 1 and {max_number}.")
-    print(f"You have {max_guesses} guesses. Good luck!\n")
 
-    while guesses_left > 0:
-        text = input(f"Guess ({guesses_left} left): ").strip()
+def show_tasks(tasks):
+    if not tasks:
+        print("\nYour list is empty.")
+        return
 
-        if not text.isdigit():
-            print("Please type a whole number.")
-            continue
+    print("\nYour tasks:")
+    for i, task in enumerate(tasks, start=1):
+        mark = "[x]" if task["done"] else "[ ]"
+        priority = task["priority"].upper()
+        print(f"  {i}. {mark} ({priority}) {task['title']}")
 
-        guess = int(text)
+    done_count = sum(1 for t in tasks if t["done"])
+    print(f"\n{done_count} of {len(tasks)} completed.")
 
-        if guess < 1 or guess > max_number:
-            print(f"Stay between 1 and {max_number}.")
-            continue
 
-        if guess in previous_guesses:
-            print("You already tried that one!")
-            continue
+def add_task(tasks):
+    title = input("Task description: ").strip()
+    if not title:
+        print("Task can't be empty.")
+        return
 
-        previous_guesses.append(guess)
-        guesses_left -= 1
+    priority = input("Priority (low/medium/high) [medium]: ").strip().lower()
+    if priority not in ("low", "medium", "high"):
+        priority = "medium"
 
-        if guess == secret:
-            used = max_guesses - guesses_left
-            print(f"\nCorrect! You got it in {used} guess{'es' if used != 1 else ''}.")
-            return True
+    tasks.append({"title": title, "priority": priority, "done": False})
+    save_tasks(tasks)
+    print(f"Added: {title}")
 
-        difference = abs(secret - guess)
-        if difference <= 3:
-            hint = "Very close!"
-        elif difference <= 10:
-            hint = "Getting warm."
-        else:
-            hint = "Way off."
 
-        direction = "higher" if guess < secret else "lower"
-        print(f"{hint} Try {direction}.")
+def pick_task(tasks, action):
+    """Ask the user for a task number and return its index, or None."""
+    if not tasks:
+        print("No tasks to " + action + ".")
+        return None
 
-    print(f"\nOut of guesses! The number was {secret}.")
-    return False
+    show_tasks(tasks)
+    text = input(f"Number of task to {action}: ").strip()
+
+    if not text.isdigit():
+        print("Please enter a task number.")
+        return None
+
+    index = int(text) - 1
+    if index < 0 or index >= len(tasks):
+        print("No task with that number.")
+        return None
+
+    return index
+
+
+def complete_task(tasks):
+    index = pick_task(tasks, "complete")
+    if index is None:
+        return
+    tasks[index]["done"] = True
+    save_tasks(tasks)
+    print(f"Marked as done: {tasks[index]['title']}")
+
+
+def delete_task(tasks):
+    index = pick_task(tasks, "delete")
+    if index is None:
+        return
+    removed = tasks.pop(index)
+    save_tasks(tasks)
+    print(f"Deleted: {removed['title']}")
+
+
+def clear_completed(tasks):
+    before = len(tasks)
+    tasks[:] = [t for t in tasks if not t["done"]]
+    save_tasks(tasks)
+    print(f"Removed {before - len(tasks)} completed task(s).")
 
 
 def main():
-    print("===== NUMBER GUESSING GAME =====\n")
-    wins = 0
-    rounds = 0
+    tasks = load_tasks()
+
+    menu = {
+        "1": ("View tasks", lambda: show_tasks(tasks)),
+        "2": ("Add task", lambda: add_task(tasks)),
+        "3": ("Complete task", lambda: complete_task(tasks)),
+        "4": ("Delete task", lambda: delete_task(tasks)),
+        "5": ("Clear completed", lambda: clear_completed(tasks)),
+    }
 
     while True:
-        rounds += 1
-        if play_round():
-            wins += 1
+        print("\n===== TO-DO LIST =====")
+        for key, (label, _) in menu.items():
+            print(f"{key}. {label}")
+        print("6. Quit")
 
-        print(f"\nScore: {wins} win(s) out of {rounds} round(s).")
-        again = input("Play again? (y/n): ").strip().lower()
-        if again != "y":
-            print("Thanks for playing!")
+        choice = input("Choose: ").strip()
+
+        if choice == "6":
+            print("Bye! Your tasks are saved.")
             break
-        print()
+
+        if choice in menu:
+            menu[choice][1]()
+        else:
+            print("Invalid option.")
 
 
 if __name__ == "__main__":
