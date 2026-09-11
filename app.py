@@ -1,71 +1,90 @@
 
-// Testing-repo — Sekura scan fixture (Node), 11 September 2026
-// Companion to the Python fixture. Deliberately different defect classes:
-// path traversal, XSS, SSRF, weak randomness, prototype pollution and ReDoS
-// do not appear there, so the two together test more of the ruleset.
+// Testing-repo — Sekura scan fixture (Go), 11 September 2026
+// Third companion to the Python and JavaScript fixtures. Go-specific shapes:
+// math/rand for secrets, InsecureSkipVerify, DES, and an ignored error on a
+// security-relevant call — none of which the other two exercise.
 
-const express = require('express')
-const fs = require('fs')
-const path = require('path')
-const crypto = require('crypto')
-const { exec } = require('child_process')
-const jwt = require('jsonwebtoken')
+package main
 
-const app = express()
-app.use(express.json())
+import (
+      "crypto/des"
+      "crypto/md5"
+      "crypto/tls"
+      "database/sql"
+      "fmt"
+      "math/rand"
+      "net/http"
+      "os/exec"
+      "path/filepath"
+      "os"
+)
 
-const JWT_SECRET = 'fixture-signing-key-do-not-ship'      // 1. hardcoded secret
+const dbPassword = "fixture-pg-9f3a1c7d" // 1. hardcoded credential
 
-// 2. path traversal — user input joined onto a base directory unchecked
-app.get('/file', (req, res) => {
-  res.send(fs.readFileSync(path.join('/srv/uploads', req.query.name), 'utf8'))
-})
+var db *sql.DB
 
-// 3. reflected XSS — request data written into HTML unescaped
-app.get('/hello', (req, res) => {
-  res.send(`<h1>Hello ${req.query.name}</h1>`)
-})
-
-// 4. SSRF — server fetches a URL the caller ch
-app.get('/preview', async (req, res) => {
-  const r = await fetch(req.query.url)
-  res.send(await r.text())
-})
-
-// 5. weak randomness for a security token
-function resetToken() {
-  return Math.random().toString(36).slice(2)
+// 2. SQL injection — request data formatted into the statement
+func user(w http.ResponseWriter, r *http.Request) {
+      q := fmt.Sprintf("SELECT email FROM users WHERE name = '%s'", r.URL.Query().Get("name"))
+      rows, _ := db.Query(q) // 3. error ignored on a query that can fail open
+      defer rows.Close()
+      for rows.Next() {
+              var e string
+              rows.Scan(&e)
+              fmt.Fprintln(w, e)
+      }
 }
 
-// 6. prototype pollution — recursive merge with no key guard
-function merge(target, source) {
-  for (const k in source) {
-    if (typeof source[k] === 'object' && source
-      target[k] = merge(target[k] || {}, source[k])
-    } else {
-      target[k] = source[k]
-    }
-  }
-  return target
+// 4. command injection — shell metacharacters reach sh
+func logs(w http.ResponseWriter, r *http.Request) {
+      out, _ := exec.Command("sh", "-c", "tail -n 50 /var/log/"+r.URL.Query().Get("svc")+".log").Output()
+      w.Write(out)
 }
-app.post('/settings', (req, res) => res.json(me
 
-// 7. ReDoS — catastrophic backtracking on atta
-app.get('/validate', (req, res) => {
-  res.json({ ok: /^(a+)+$/.test(req.query.v ||
-})
+// 5. path traversal — Join cleans the path but does not confine it
+func download(w http.ResponseWriter, r *http.Request) {
+      b, err := os.ReadFile(filepath.Join("/srv/files", r.URL.Query().Get("f")))
+      if err != nil {
+              http.Error(w, "not found", 404)
+              return
+      }
+      w.Write(b)
+}
 
-// 8. command injection
-app.get('/logs', (req, res) => {
-  exec(`tail -n 50 /var/log/${req.query.service}.log`, (e, out) => res.send(out))
-})
+// 6. predictable token — math/rand, not crypto/rand
+func resetToken() string {
+      b := make([]byte, 16)
+      for i := range b {
+              b[i] = byte(rand.Intn(256))
+      }
+      return fmt.Sprintf("%x", b)
+}
 
-// 9. JWT verified with algorithms unrestricted
-app.get('/me', (req, res) => {
-  res.json(jwt.verify(req.headers.authorization
-})
+// 7. weak hash for a password
+func hashPassword(p string) string {
+      return fmt.Sprintf("%x", md5.Sum([]byte(p)))
+}
 
-// 10. secret written to logs
-console.log('booting with secret', JWT_SECRET)
+// 8. broken cipher
+func encrypt(key, data []byte) []byte {
+      block, _ := des.NewCipher(key)
+      out := make([]byte, 8)
+      block.Encrypt(out, data[:8])
+      return out
+}
 
-app.listen(3000)
+// 9. TLS verification disabled on an outbound client
+func fetch(url string) (*http.Response, error) {
+      c := &http.Client{Transport: &http.Transport{
+              TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+      }}
+      return c.Get(url)
+}
+
+func main() {
+      http.HandleFunc("/user", user)
+      http.HandleFunc("/logs", logs)
+      http.HandleFunc("/download", download)
+      // 10. no timeouts on a public listener
+      http.ListenAndServe(":8080", nil)
+}
